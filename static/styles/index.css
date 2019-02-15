@@ -1,0 +1,20 @@
+
+.body{
+  border-top: solid;
+}
+
+.title{
+  background-color: #4b7eff;
+  color:white;
+  border:solid;
+}
+
+.upper-content{
+  height: 25%;
+  width: 100%;
+  border: solid;
+}
+
+.buttons-content{
+  padding-top: 50px;
+}

@@ -1,0 +1,51 @@
+<!DOCTYPE HMTL>
+<html>
+<link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/index.css') }}">
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+
+<head>
+  <center>
+    <h1 class="title">Roncancio Wealth Management</h1>
+  </center>
+</head>
+
+<body>
+  <div class="content">
+    <center>
+      <label for="graph"> Graph test</label>
+      <form class="start-form" action="{{ url_for('runAlg') }}" method="post">
+        <input type="text" name="ticker" value="" placeholder="Enter Ticker">
+        <input type="submit" name="button" value="Enter">
+      </form>
+    </center>
+
+    <img id="graph" src="static/images/graph.png" alt="Chart">
+  </div>
+</body>
+
+</html>
+
+<script>
+  jQuery.ajaxSetup({
+    async: false
+  });
+  $(document).ready(function() {
+    setTimeout(ajaxd, 1000);
+  });
+
+  function ajaxd() {
+    //reload result into element with id "sysStatus"
+    $("#graph").load("/runAlg", function() {
+      // setTimeout(ajaxd, 10000);
+    });
+  }
+</script>
+<!-- <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.6/socket.io.min.js"></script>
+<script type="text/javascript" charset="utf-8">
+  var socket = io.connect('http://' + document.domain + ':' + location.port);
+  socket.on('connect', function() {
+    socket.emit('my event', {
+      data: 'I\'m connected!'
+    });
+  });
+</script> -->

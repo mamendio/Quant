@@ -37,9 +37,7 @@ def main():
 
 @app.route("/runAlg", methods=['GET','POST'])
 def runAlg():
-    start_date = datetime.datetime.now() + datetime.timedelta(-30)
-    end_date = datetime.datetime.now()
-    ticker = 'tdoc'
+    ticker = request.form['ticker']#'tdoc'
     data = pdr.get_data_yahoo(ticker, start=datetime.datetime.now() + datetime.timedelta(-30), end=datetime.datetime.now())
     result = EMA(data)
     plt.grid(True)
@@ -47,20 +45,6 @@ def runAlg():
     plt.plot()
     plt.savefig('static/images/graph.png')
     return render_template('runAlg.html')
-
-# @socketio.on('my event')
-# def handle_my_custom_event(json):
-#     start_date = datetime.datetime.now() + datetime.timedelta(-30)
-#     end_date = datetime.datetime.now()
-#     ticker = 'tdoc'
-#     data = pdr.get_data_yahoo(ticker, start=datetime.datetime.now() + datetime.timedelta(-30), end=datetime.datetime.now())
-#     result = EMA(data)
-#     plt.grid(True)
-#     plt.title(ticker.upper())
-#     plt.plot()
-#     plt.savefig('static/images/graph.png')
-#     emit('my response')
-#
 
 if __name__ == "__main__":
     socketio.run(app)

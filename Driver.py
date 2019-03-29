@@ -71,3 +71,5 @@ if __name__ == "__main__":
 
 #--------side notes ---------------
 # Should look at the daily data
+# https://www.youtube.com/watch?v=6up7mTY9ZnI webscraper for tradingview
+# https://www.tradingview.com/rest-api-spec/

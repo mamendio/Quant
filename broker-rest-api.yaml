@@ -1,0 +1,2686 @@
+openapi:
+  3.0.0
+info:
+  version: 1.1.0
+  title: TradingView REST API Specification for Brokers
+  description: |
+    ## Overview
+      This API is to be implemented by the Brokers in order to connect their backend systems to TradingView, that acts as a frontend.
+
+      Check the [info page](https://beta-rest.tradingview.com/brokerage-integration/) for more info & email
+      [founders@tradingview.com](mail:founders@tradingview.com) if you have any questions.
+
+      ### Types of requests
+      There are two types of requests — client and server.
+      Client requests are executed at the browser. Server requests are initiated from the TradingView servers.
+      If your integration does not imply brokerage data stream connection to the TradingView website -
+      then there won't be any server requests.
+
+      #### Clients requests
+      From the browser TradingView requests the info (list of orders and positions, balance info, etc.) from the broker’s server.
+      The requests are sent periodically and the intervals can be set by using the [/config](#operation/getConfiguration) endpoint.
+      After that, TradingView compares the new data with the previous answer and calculates the difference.
+      If the status of the order/position changes or new data appears - the user will see a notification and the changes
+      will display in the Account Manager on the website.
+
+      Requests to the [endpoints](/rest-api-spec/#tag/Trading) for placing/modifying orders, positions closing, etc. occur only after actions made by the user.
+
+      The [/quotes](#operation/getQuotes) endpoint retrieves the current bid/ask from the broker.
+      The [/depth](#operation/getDepth) endpoint retrieves Level 2 market data.
+
+      #### Server requests
+      In case if a Broker provides any Forex or CFD trading access for its clients it will require connection
+      of its own market data at TradingView. In order to make it possible, you will need to implement the following endpoints -
+        [/symbol_info](#operation/getSymbolInfo), [/history](#operation/getHistory) and [/streaming](#operation/streaming).
+      Data requests are sent from different TradingView servers. Usually, at least 4 servers are used.
+      The historical data is cached on TradingView servers and loaded to the client browser from our servers.
+
+      ### Restricting access to data
+      By default, the broker symbols will be available in the symbol search at TradingView and all the community
+      will have access to your data streams without any limitation. In order to limit the access to your data streams
+      please use the following endpoints - [/groups](#operation/getGroups) and [/permissions](#operation/getPermissions).
+
+      You can find more information about restricting access to the data in the description of these endpoints.
+
+servers:
+  - url: https://your-rest-implementation.com/api
+    description: Your REST API implementation url. Change it to your real REST API url.
+
+paths:
+
+  /authorize:
+      post:
+        summary: Authorize
+        operationId: authorize
+        tags:
+          - Password authentication
+        description: Username and password authentication with the optional 2FA support.
+        requestBody:
+          required: true
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                type: object
+                properties:
+                  login:
+                    type: string
+                    description: User login.
+                  password:
+                    type: string
+                    description: User password.
+                  2faCode:
+                    type: string
+                    description: |
+                      Two Factor Authentication Code for the second `/authorize` request,
+                      if the `2fa_required` flag was set in the first request.
+                required:
+                  - login
+                  - password
+              example: {
+                "login": "user1",
+                "password": "dfkjhoijogpoi",
+                "2faCode": 3456753
+              }
+        responses:
+          200:
+            description: response
+            content:
+              application/json:
+                schema:
+                  oneOf:
+                    - $ref: '#/components/schemas/AuthorizeResponse'
+                    - $ref: '#/components/schemas/ErrorResponse'
+
+  /config:
+    get:
+      summary: Configuration
+      operationId: getConfiguration
+      tags:
+        - Broker configuration
+      description: Get localized configuration.
+      parameters:
+        - $ref: '#/components/parameters/locale'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ConfigResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /mapping:
+    get:
+      summary: Mapping
+      operationId: getMapping
+      tags:
+        - Broker configuration
+      description: |
+        Return all broker instruments with corresponding TradingView instruments.
+        It is required to add a Broker to TradingView.com.
+        Please note that this endpoint works without authorization!
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MappingResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts:
+    get:
+      summary: Accounts
+      operationId: getAccounts
+      tags:
+        - Account
+      description: Get a list of accounts owned by the user.
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/AccountResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{accountId}/state:
+    get:
+      summary: State
+      operationId: getState
+      tags:
+        - Account
+      description: Get account information.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/locale'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/AccountStateResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{accountId}/orders:
+    get:
+      summary: Orders
+      operationId: getOrders
+      tags:
+        - Account
+      description: |
+        Get current session orders for the account. It is expected that broker returns orders
+        filled/cancelled/rejected during current session.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/OrdersResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Place Order
+      operationId: placeOrder
+      tags:
+        - Trading
+      description: |
+        Place a new order.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                instrument:
+                  description: Instrument to open the order on.
+                  type: string
+                  example: EURUSD
+                qty:
+                  description: The number of units to open order for.
+                  type: number
+                  example: 1
+                side:
+                  description: Side.
+                  type: string
+                  enum:
+                    - buy
+                    - sell
+                  example: buy
+                type:
+                  description: Type.
+                  type: string
+                  enum:
+                    - market
+                    - stop
+                    - limit
+                    - stoplimit
+                  example: limit
+                limitPrice:
+                  description: Limit Price for Limit or StopLimit order.
+                  type: number
+                  example: 1.23456
+                stopPrice:
+                  description: Stop Price for Stop or StopLimit order.
+                  type: number
+                durationType:
+                  description: Duration ID (if supported).
+                  type: string
+                  example: gtt
+                durationDateTime:
+                  description: Expiration datetime UNIX timestamp (if supported by duration type).
+                  type: number
+                  example: 1548406235
+                stopLoss:
+                  description: StopLoss price (if supported).
+                  type: number
+                takeProfit:
+                  description: TakeProfit price (if supported).
+                  type: number
+                digitalSignature:
+                  description: Digital signature (if supported).
+                  type: string
+                  example: 954345868
+                requestId:
+                  $ref: '#/components/parameters/requestId'
+              required:
+                - instrument
+                - qty
+                - side
+                - type
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PostOrderResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{accountId}/positions:
+    get:
+      summary: Positions
+      operationId: getPositions
+      tags:
+        - Account
+      description: Get positions for an account.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PositionsResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{accountId}/executions:
+    get:
+      summary: Executions
+      operationId: getExecutions
+      tags:
+        - Account
+      description: |
+        Get the orders that were executed during the current session for the account.
+        It is expected that broker returns orders filled/cancelled/rejected during current session.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - name: instrument
+          in: query
+          description: Broker instrument name.
+          schema:
+            type: string
+          required: true
+        - name: maxCount
+          description: Maximum count of executions to return.
+          in: query
+          schema:
+            type: number
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ExecutionsResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{accountId}/instruments:
+    get:
+      summary: Instruments
+      operationId: getInstruments
+      tags:
+        - Account
+      description: |
+        Get the list of the instruments that are available for trading with the specified account.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InstrumentsResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{accountId}/permissions:
+    get:
+      summary: Permissions
+      operationId: getPermissions
+      tags:
+        - Account
+      description: |
+        Get a list of symbol groups allowed for the user.
+        It is only required if you use groups of symbols to restrict access to instrument's data.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PermissionsResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{accountId}/ordersHistory:
+    get:
+      summary: Orders History
+      operationId: getOrdersHistory
+      tags:
+        - Account
+      description: |
+        Get order history for an account. It is expected that returned orders
+        will have a final status (`rejected`, `filled`, `cancelled`). This endpoint is
+        optional. If you don't support orders history, please set
+        `AccountFlags::supportOrdersHistory` to `false`.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - name: maxCount
+          description: Maximum count of orders to return.
+          in: query
+          schema:
+            type: number
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/OrdersHistoryResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+
+  /accounts/{accountId}/balances:
+    get:
+      summary: Balances
+      operationId: getBalances
+      tags:
+        - Crypto Balances
+      description: Return all balances for the user account. Used for crypto currencies only.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/BalancesResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+
+  /accounts/{accountId}/orders/{orderId}:
+    put:
+      summary: Modify Order
+      operationId: modifyOrder
+      tags:
+        - Trading
+      description: Modify an existing order.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/orderId'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                qty:
+                  description: The number of units to open order for.
+                  type: number
+                  example: 2
+                limitPrice:
+                  description: Limit Price for Limit or StopLimit order.
+                  type: number
+                stopPrice:
+                  description: Stop Price for Stop or StopLimit order.
+                  type: number
+                durationType:
+                  description: Duration ID (if supported).
+                  type: string
+                durationDateTime:
+                  description: Expiration datetime UNIX timestamp (if supported by duration type).
+                  type: number
+                stopLoss:
+                  description: StopLoss price (if supported).
+                  type: number
+                takeProfit:
+                  description: TakeProfit price (if supported).
+                  type: number
+                digitalSignature:
+                  description: Digital signature (if supported).
+                  type: string
+                requestId:
+                  $ref: '#/components/parameters/requestId'
+              required:
+                - qty
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Cancel Order
+      operationId: cancelOrder
+      tags:
+        - Trading
+      description: Cancel an existing order.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/orderId'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /accounts/{accountId}/positions/{positionId}:
+    put:
+      summary: Modify Position
+      operationId: modifyPosition
+      tags:
+        - Trading
+      description: |
+        Modify an existing position stop loss or take profit or both.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/positionId'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                stopLoss:
+                  description: StopLoss price.
+                  type: number
+                  example: 1.283568
+                takeProfit:
+                  description: TakeProfit price.
+                  type: number
+                  example: 1.294436
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Close Position
+      operationId: closePosition
+      tags:
+        - Trading
+      description: Close an existing position.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/positionId'
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /quotes:
+    get:
+      summary: Quotes
+      operationId: getQuotes
+      tags:
+        - Market Data
+      description: |
+        Get current prices of the instrument.
+      parameters:
+        - name: symbols
+          description: Comma separated symbol list.
+          in: query
+          schema:
+            type: string
+          required: true
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/QuotesResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /depth:
+    get:
+      summary: Depth
+      operationId: getDepth
+      tags:
+        - Market Data
+      description: Get current depth of market for the instrument. Optional.
+      parameters:
+        - name: symbol
+          description: Instrument name.
+          in: query
+          schema:
+            type: string
+          required: true
+      security:
+        - PasswordBearer: []
+        - OAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/DepthResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /groups:
+    get:
+      summary: Groups
+      operationId: getGroups
+      tags:
+        - Data Integration
+      description: |
+        Get a list of possible groups of symbols.
+        A group is a set of symbols that share a common access level. Any user can have access to any number of such groups.
+
+        **IMPORTANT:**
+        Please plan your symbol grouping carefully. Groups cannot be deleted, you can only remove all the symbols from there.
+
+        **LIMITATIONS:**
+        Each integration is limited to have up to 10 symbol groups.
+        Each symbol group is limited to have up to 10K symbols in it.
+        You cannot put the same symbol into 2 different groups.
+
+        This endpoint allows you to specify a list of groups, and the [/permissions](#operation/getPermissions) endpoint specifies
+        which groups are available for the certain user.
+
+        When TradingView user logs into his broker account - he will gain access to one or more groups,
+        depending on the [/permissions](#operation/getPermissions) endpoint.
+
+        At the [/symbol_info](#operation/getSymbolInfo) endpoint TradingView adds the GET argument `group`
+        with the name of the group. Thus, TradingView will receive information about which group each symbol belongs to.
+
+        It is required only if you use groups of symbols in order to restrict access to the instrument's data.
+
+      security:
+        - PasswordBearer: []
+        - ServerOAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/GroupListResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /symbol_info:
+    get:
+      summary: Symbol Info
+      operationId: getSymbolInfo
+      tags:
+        - Data Integration
+      description: Get a list of all instruments.
+      parameters:
+        - $ref: '#/components/parameters/group'
+      security:
+        - PasswordBearer: []
+        - ServerOAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SymbolInfoResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /history:
+    get:
+      summary: History
+      operationId: getHistory
+      tags:
+        - Data Integration
+      description: |
+        Request for history bars. Each property of the response object is treated as a table column.
+
+        Bar time for daily bars should be 00:00 UTC and is expected to be a trading day
+        (not a day when the session starts).
+
+        Bar time for monthly bars should be 00:00 UTC and is the first trading day of the month.
+
+        If there is no data in the requested time period but there is data in the previous time period
+        you should set the status code to `no_data` and the `nb` property to UNIX timestamp of the next
+        available bar behind the range.
+
+        If there is no data in the requested and previous time periods then you should set the status code to `no_data`.
+      parameters:
+        - $ref: '#/components/parameters/symbol'
+        - $ref: '#/components/parameters/resolution'
+        - $ref: '#/components/parameters/historyFrom'
+        - $ref: '#/components/parameters/historyTo'
+        - $ref: '#/components/parameters/countback'
+      security:
+        - PasswordBearer: []
+        - ServerOAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/HistorySuccessResponse'
+                  - $ref: '#/components/schemas/HistoryNoDataResponse'
+                  - $ref: '#/components/schemas/HistoryNextBarResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+
+  /streaming:
+    get:
+      summary: Stream of prices
+      operationId: streaming
+      tags:
+        - Data Integration
+      description: |
+        Stream of prices. Server constantly keeps the connection alive. If the
+        connection is broken - the server constantly tries to restore it.
+        TradingView establishes up to 4 simultaneous connections to this endpoint and
+        expects to get the same data to all of them.
+        Transfer mode is `chunked encoding`. The data feed should set `'Transfer-Encoding:
+        chunked'` and make sure that all intermediate proxies are set to use this
+        mode. All messages are to be ended with `\n`. Data stream should contain
+        real-time data only. It shouldn't contain snapshots of data.
+
+        Data feed should provide ticks (trades, asks, bids) and daily bars.
+
+        If trades are not provided, then data feed should set trades to bids.
+
+        If there is only ask/bid implementation you must also set the trade
+        (same as bid but it's size must be >= `1`).
+
+        Size for trades is always >= `1` except for a correction. In case of
+        correction - size can be `0`.
+
+        Daily bars are required if they cannot be built from ticks (`has_daily`
+        should be set to `true` in the symbol information).
+
+        The broker must remove unnecessary restrictions (firewall, rate limits, etc.) for the set of IP addresses of our servers.
+
+      security:
+        - PasswordBearer: []
+        - ServerOAuth2Bearer: []
+      responses:
+        200:
+          description: response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/StreamingAskResponse'
+                  - $ref: '#/components/schemas/StreamingBidResponse'
+                  - $ref: '#/components/schemas/StreamingTradeResponse'
+                  - $ref: '#/components/schemas/StreamingDailyBarResponse'
+
+components:
+  securitySchemes:
+    PasswordBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Bearer ACCESS_TOKEN
+      description: |
+        This flow uses login and password to authenticate a user. Username and password are sent as parameters
+        to the [/authorize](/rest-api-spec/#operation/authorize) endpoint.
+
+        **Note**: If the broker wants to use the  2 Factor Authentication, then the `2fa_required` flag should be set
+        to `true` in the [/authorize](/rest-api-spec/#operation/authorize) response. In this case the user is asked
+        to enter an additional 2FA code.
+        This code among with the username and the password is sent to the broker again.
+
+        If the username, password and 2FA code (optional) are valid, then the broker issues an access token
+        and returns it in the response. The access token is sent with every request in the Authorization header.
+
+    OAuth2Bearer:
+      type: oauth2
+      flows:
+        implicit:
+          authorizationUrl: https://your-rest-implementation.com/api/authorize
+          scopes:
+            general: permission to perform all requests
+      description: |
+        TradingView is using the implicit flow of OAuth 2. According to the [RFC](https://tools.ietf.org/html/rfc6749),
+        this implies the following:
+          - an access token is passed directly to the user agent as a fragment in redirect_uri;
+          - refresh token is not used;
+
+        The broker provides a client id and an authorization endpoint URI to TradingView. TradingView provides two redirect URI's
+        to the broker: one for the staging environment and another one for the production environment.
+
+        TradingView sends the authorization request according to [OAuth 2 specification, 4.2.1](https://tools.ietf.org/html/rfc6749#section-4.2.1).
+        The following parameters should be in the query part of the authorization URI:
+          - `response_type` should be `token`;
+          - `client_id` is a constant string provided by the broker;
+          - `redirect_uri` is a known prescribed URI where the access token should be added as a fragment after successful authorization. **Note**: redirect URI should be verified by the broker's OAuth service, and should be whitelisted on the broker's service;
+          - `scope` is set to `general`;
+          - `state`  is a verbatim string the broker should return back to TradingView without modifications in the authorization response.
+
+        In case of successful authorization, the OAuth service redirects the user-agent (browser) to `redirect_uri`
+        with the access token added as a fragment, according to https://tools.ietf.org/html/rfc6749#section-4.2.2.
+        The `state` parameter should be passed without modifications.
+
+        After performing authorization, the access token is sent with every request in the `Authorization` header.
+
+        In order to refresh the access token the broker should support additional prompt parameter in the authorization requests,
+        that is not a part of the OAuth specification, but it presents in the OpenID Connect specification
+        (see http://openid.net/specs/openid-connect-basic-1_0.html#RequestParameters ).
+        The broker should respect the `none` value of this parameter and display no authentication UI and just return
+        an error if the user session is already expired (the specific error codes is also standardized by the OIDC specification).
+
+    ServerOAuth2Bearer:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://your-rest-implementation.com/api/authorize/token
+          scopes:
+            general: permission to perform all requests
+      description: |
+        This authentication flow is used for server-to-server requests where authentication needs to be done without human intervention.
+        It can be used with the [/history](#operation/getHistory), [/symbol_info](#operation/getSymbolInfo), [/streaming](#operation/streaming)
+        and [/groups](#operation/getGroups) endpoints.
+
+        JSON Web Token (JWT) is used to securely transmit information between broker and TradingView.
+        More information about JWT can be found [here](https://jwt.io/introduction/).
+
+        ### Application and OAuth2 parameters
+
+        The broker provides the following application and OAuth2 parameters to TradingView:
+
+        Application parameter | Description | Example value
+        -----------------|-------------|---------------
+        AppUrl | A URL uniquely representing broker's application | https://your-rest-implementation.com
+        UserId | A user identifier for which the access token will be issued | testuser1
+
+        OAuth2 parameter | Description | Example value
+        -----------------|-------------|---------------
+        client_id | A unique client Identifier | FGGH7-TRVC3-ECDD2-CDHRG3-FYUDG5 |
+        client_secret | Secret code | adfegywrtyw |
+        token_url | An url to which the access token request will be sent | https://your-rest-implementation.com/authorize/token
+        grant_type | Indicates the type of grant being presented in exchange for an access token  | urn:your-broker:oauth:grant-type:personal-jwt
+
+        ### X.509 Certificate
+        The broker provides a valid X.509 certificate to TradingView for signing JWT.
+
+
+        ### JSON Web Token
+        JWT for the access token request is created with the following headers and claims:
+
+        Header | Description | Standard | Sample Value
+        -------|-----------|------------|---------------
+        x5t | Thumbprint of provided X.509 certificate used for signing JWT | [RFC 7515](https://tools.ietf.org/html/rfc7515#section-4.1.7) | 935093f1690900asdfd98626dfw35fa22b41d9dfd
+        alg | Algorithm used to sign JWT. RS256 is only supported at the moment | [RFC 1518](https://tools.ietf.org/html/rfc7518#page-6) | RS256
+
+        Claim | Description | Sample Value
+        ------|-------------|-------------
+        iss | Issuer - Value should be client_id | FGGH7-TRVC3-ECDD2-CDHRG3
+        sub | UserId - Value should be the UserId for which token is needed | testuser1
+        exp | Expiry - Value should be a unix time stamp indicating expiry of the token | 1549465914
+        aud | Audience - Value should be the token_url | https://your-rest-implementation.com/authorize/token
+        spurl | AppUrl - The AppUrl of your application | https://your-rest-implementation.com
+
+        ### Requesting the access token
+        TradingView sends a POST request to the `token_url` to obtain an access token.
+        This request needs to be authenticated using HTTP Basic Auth with `client_id` as a username and `client_secret` as password.
+        The basic auth is a base64 encoded string in the following format: `client_id:client_secret`.
+        The JWT is sent in a parameter named `assertion`.
+
+        #### Example Access Token request - with Authorization header
+
+            POST /token HTTP/1.1
+            Host: https://your-rest-implementation.com
+            Authorization: Basic DVTrRfRtyuRGDVUNFW4=
+            Content-Type: application/x-www-form-urlencoded
+            grant_type=urn%3Ayour-broker%3Aoauth%3Agrant-type%3Apersonal-jwt
+            &assertion=eyJdtrgY7ghUJiotHGitTYUItyhjTyuioeEuJoio.EIOtjgt[omitted for brevity]
+
+        The response to this request should contain an `access_token` and a `refresh_token`:
+
+        #### Example Access Token response
+            {
+              "access_token" : "eyJhbfGujudUf.eyJvYWEiOiIw[omitted for brevity]",
+              "expires_in": 1200,
+              "token_type": "Bearer",
+              "refresh_token": "86fy7fa3d2-5e13-4736-86031-9ehiyiufrow0b",
+              "refresh_token_expires_in": 2400
+            }
+
+  parameters:
+        locale:
+          name: locale
+          in: query
+          required: true
+          description: Locale (language) id.
+          schema:
+            type: string
+            enum:
+              - ar
+              - cs
+              - de
+              - el
+              - en
+              - es
+              - fa
+              - fr
+              - hu
+              - it
+              - ja
+              - ko
+              - nl
+              - pl
+              - pt
+              - ro
+              - ru
+              - sk
+              - sv
+              - th
+              - tr
+              - vi
+              - zh
+        requestId:
+          name: requestId
+          in: query
+          description: Unique identifier for a request.
+          schema:
+            type: string
+          required: false
+          example: 23425678343
+        accountId:
+          name: accountId
+          in: path
+          description: Account identifier.
+          schema:
+            type: string
+          required: true
+        orderId:
+          name: orderId
+          description: Order identifier.
+          in: path
+          schema:
+            type: string
+          required: true
+        positionId:
+          name: positionId
+          description: Position identifier.
+          in: path
+          schema:
+            type: string
+          required: true
+        group:
+          name: group
+          in: query
+          description: |
+            ID of a symbol group. If it presents then only symbols that belong to this group should be returned.
+            Possible values are provided by the [/groups](#operation/getGroups) endpoint.
+            It is only required if you use groups of symbols to restrict access to instrument's data.
+          schema:
+            type: string
+        symbol:
+          name: symbol
+          in: query
+          description: Symbol name or ticker.
+          schema:
+            type: string
+          required: true
+        resolution:
+          name: resolution
+          in: query
+          description: |
+            Symbol resolution. Possible resolutions are daily (`D` or `1D`, `2D` ... ),
+            weekly (`1W`, `2W` ...), monthly (`1M`, `2M`...) and an intra-day
+            resolution &ndash; minutes(`1`, `2` ...).
+          schema:
+            type: string
+          required: true
+        historyFrom:
+          name: from
+          in: query
+          description: 'Unix timestamp (UTC) of the leftmost required bar, including `from`.'
+          schema:
+            type: number
+          required: true
+        marksFrom:
+          name: from
+          in: query
+          description: 'Unix timestamp (UTC) of the leftmost required mark, including `from`.'
+          schema:
+            type: number
+          required: true
+        historyTo:
+          name: to
+          in: query
+          description: |
+            Unix timestamp (UTC) of the rightmost required bar, including `to`. It can be in the future.
+            In this case, the rightmost required bar is the latest available bar.
+          schema:
+            type: number
+          required: true
+        marksTo:
+          name: to
+          in: query
+          description: 'Unix timestamp (UTC) of the rightmost required mark, including `to`.'
+          schema:
+            type: number
+          required: true
+        countback:
+          name: countback
+          in: query
+          description: |
+            Number of bars (higher priority than `from`) starting with `to`. If
+            `countback` is set, `from` should be ignored.
+          schema:
+            type: number
+
+  schemas:
+    Status:
+      type: string
+      enum:
+        - ok
+        - error
+
+    ErrorResponse:
+      type: object
+      properties:
+        s:
+          type: string
+          description: Status will always be `error`.
+          example: 'error'
+        errmsg:
+          type: string
+          description: Error message.
+          example: 'An error occurred.'
+      required:
+        - s
+        - errmsg
+
+    SuccessResponse:
+      type: object
+      properties:
+        s:
+          type: string
+          description: Status will always be `ok`.
+          example: 'ok'
+      required:
+        - s
+
+    AuthorizeResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              $ref: '#/components/schemas/AccessToken'
+          required:
+            - d
+
+    ConfigResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              $ref: '#/components/schemas/Config'
+          required:
+            - d
+
+    MappingResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              $ref: '#/components/schemas/SymbolMapping'
+          required:
+            - d
+
+    AccountResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: array
+              items:
+                $ref: '#/components/schemas/Account'
+          required:
+            - d
+
+    AccountStateResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              $ref: '#/components/schemas/AccountState'
+          required:
+            - d
+
+    ExecutionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: array
+              items:
+                $ref: '#/components/schemas/Execution'
+          required:
+            - d
+
+    InstrumentsResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: array
+              items:
+                $ref: '#/components/schemas/Instrument'
+              example: [
+                {
+                  "name": "EURUSD",
+                  "description": "EUR/USD ",
+                  "minQty": 1,
+                  "maxQty": 100000000,
+                  "qtyStep": 100,
+                  "pipSize": 0.0001,
+                  "pipValue": 0.00008845,
+                  "minTick": 0.00001,
+                  "type": "forex"
+                },
+                {
+                  "name": "AAPLE",
+                  "description": "Apple Inc",
+                  "minQty": 1,
+                  "maxQty": 100000000,
+                  "qtyStep": 1,
+                  "pipSize": 0.01,
+                  "pipValue": 1,
+                  "minTick": 0.01,
+                  "type": "stock"
+                }
+              ]
+          required:
+            - d
+
+    PermissionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: array
+              items:
+                $ref: '#/components/schemas/Permissions'
+          required:
+            - d
+
+    BalancesResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: array
+              items:
+                $ref: '#/components/schemas/Balance'
+          required:
+            - d
+
+    OrdersResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: array
+              items:
+                $ref: '#/components/schemas/Order'
+              example: [
+                {
+                  "id": "1",
+                  "instrument": "EURUSD",
+                  "qty": 100,
+                  "side": "buy",
+                  "type": "limit",
+                  "avgPrice": 0,
+                  "limitPrice": 1.14344,
+                  "duration": {
+                    "type": "gtt",
+                    "datetime": 1548406235
+                  },
+                  "status": "working"
+                },
+                {
+                  "id": "2",
+                  "instrument": "EURUSD",
+                  "qty": 100,
+                  "side": "sell",
+                  "type": "limit",
+                  "filledQty": 50,
+                  "avgPrice": 0,
+                  "limitPrice": 1.15094,
+                  "parentId": "1",
+                  "parentType": "order",
+                  "duration": {
+                    "type": "gtt",
+                    "datetime": 1548406235
+                  },
+                  "status": "inactive"
+                }
+              ]
+          required:
+            - d
+
+    OrdersHistoryResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrderHistory'
+              example: [
+                        {
+                          "id": "1",
+                          "instrument": "EURUSD",
+                          "qty": 100,
+                          "side": "buy",
+                          "type": "limit",
+                          "avgPrice": 0,
+                          "limitPrice": 1.14344,
+                          "duration": {
+                            "type": "gtt",
+                            "datetime": 1548406235
+                          },
+                          "status": "filled"
+                        },
+                        {
+                          "id": "2",
+                          "instrument": "EURUSD",
+                          "qty": 100,
+                          "side": "sell",
+                          "type": "limit",
+                          "filledQty": 50,
+                          "avgPrice": 0,
+                          "limitPrice": 1.15094,
+                          "parentId": "1",
+                          "parentType": "order",
+                          "duration": {
+                            "type": "gtt",
+                            "datetime": 1548406235
+                          },
+                          "status": "cancelled"
+                        }
+                      ]
+          required:
+            - d
+
+    PositionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: array
+              items:
+                $ref: '#/components/schemas/Position'
+          required:
+            - d
+
+    PostOrderResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              type: object
+              properties:
+                orderId:
+                  type: string
+                  description: New order identifier.
+                  example: '1'
+          required:
+            - d
+
+    QuotesResponse:
+          allOf:
+            - $ref: '#/components/schemas/SuccessResponse'
+            - type: object
+              properties:
+                d:
+                  type: array
+                  items:
+                    type: object
+                    description: Price response for an instrument.
+                    properties:
+                      s:
+                        $ref: '#/components/schemas/Status'
+                      n:
+                        description: Symbol name. Should be equal to the requested one.
+                        type: string
+                        example: 'EURUSD'
+                      v:
+                        $ref: '#/components/schemas/SingleQuote'
+                    required:
+                      - s
+                      - n
+                      - v
+              required:
+                - d
+
+    DepthResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              $ref: '#/components/schemas/Depth'
+          required:
+            - d
+
+    GroupListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - type: object
+          properties:
+            d:
+              $ref: '#/components/schemas/GroupList'
+          required:
+            - d
+
+    SymbolInfoResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - $ref: '#/components/schemas/SymbolInfoArrays'
+
+    HistorySuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessResponse'
+        - $ref: '#/components/schemas/BarsArrays'
+
+    HistoryNoDataResponse:
+      type: object
+      properties:
+        s:
+          type: string
+          description: Status will always be `no_data`.
+          example: 'no_data'
+      required:
+        - s
+
+    HistoryNextBarResponse:
+      type: object
+      properties:
+        s:
+          type: string
+          description: Status will always be `no_data`.
+          example: 'no_data'
+        nb:
+          type: number
+          description: Unix time of the next bar if there is no data in the requested period (optional).
+          example: 1484871000
+      required:
+        - s
+        - nb
+
+    StreamingAskResponse:
+      allOf:
+        - $ref: '#/components/schemas/StreamingAskItemType'
+        - $ref: '#/components/schemas/StreamingAskBidTradeItem'
+
+    StreamingBidResponse:
+      allOf:
+        - $ref: '#/components/schemas/StreamingBidItemType'
+        - $ref: '#/components/schemas/StreamingAskBidTradeItem'
+
+    StreamingTradeResponse:
+      allOf:
+        - $ref: '#/components/schemas/StreamingTradeItemType'
+        - $ref: '#/components/schemas/StreamingAskBidTradeItem'
+
+    StreamingDailyBarResponse:
+      allOf:
+        - $ref: '#/components/schemas/StreamingDailyBarType'
+        - type: object
+          description: Daily bar
+          required:
+            - id
+            - o
+            - h
+            - l
+            - c
+            - v
+          properties:
+            id:
+              description: Symbol
+              type: string
+              example: 'EURUSD'
+            o:
+              description: Open.
+              type: number
+              example: 3667
+            h:
+              description: High.
+              type: number
+              example: 3667.24
+            l:
+              description: Low.
+              type: number
+              example: 3661.55
+            c:
+              description: Close.
+              type: number
+              example: 3662.25
+            v:
+              description: Volume.
+              type: number
+              example: 34
+
+
+    AccessToken:
+      description: Access token.
+      type: object
+      required:
+        - access_token
+        - expiration
+      properties:
+        access_token:
+          description: |
+            Access token acts as a session ID that the application uses for making
+            requests. This token should be protected as if it were user
+            credentials.
+          type: string
+          example: '7133au-cba5a72-842029c'
+        expiration:
+          description: |
+            The time when the token is expired is represented as the number of
+            seconds since the Unix epoch (00:00:00 UTC on 1 January 1970).
+          type: number
+          example: 1548661401
+        2fa_required:
+          description: Set it to `true` if Two Factor Authentication Code is required in the next /authorize request.
+          type: boolean
+
+    Config:
+      type: object
+      properties:
+        accountManager:
+          type: array
+          description: |
+            Localized account manager's tables configuration. Account Manager is a
+            page in the bottom widget. This page can have multiple tables. Data of
+            the tables is filled using the [/state](/rest-api-spec/#operation/getState) endpoint.
+          items:
+            $ref: '#/components/schemas/AccountManagerTable'
+          example: [
+                      {
+                        "id": "accountSummary",
+                        "title": "",
+                        "columns": [
+                          {
+                            "id": "todayPL",
+                            "title": "Today's P&L",
+                          },
+                          {
+                            "id": "accountValue",
+                            "title": "Account Value",
+                          },
+                          {
+                            "id": "balance",
+                            "title": "Balance",
+                          },
+                          {
+                            "id": "totalMargin",
+                            "title": "Margin",
+                          },
+                          {
+                            "id": "held",
+                            "title": "Held",
+                          },
+                          {
+                            "id": "buyingPower",
+                            "title": "Buying Power",
+                          }
+                        ]
+                      }
+                    ]
+        durations:
+          type: array
+          description: Localized array of durations displayed in Order Ticket.
+          items:
+            $ref: '#/components/schemas/Duration'
+        pullingInterval:
+          $ref: '#/components/schemas/PullingInterval'
+
+    SymbolMapping:
+      type: object
+      description: Map of Broker instrument names and TradingView instrument names.
+      properties:
+        symbols:
+          type: array
+          items:
+            $ref: '#/components/schemas/SingleMapping'
+        fields:
+          description: 'Array with the only one element `[''brokerSymbol'']`.'
+          type: array
+          items:
+            $ref: '#/components/schemas/SingleField'
+      example:
+        {
+          "symbols": [
+            {
+              "f": ["EURUSD"],
+              "s": "FX_IDC:EURUSD"
+            },
+            {
+              "f": ["AAPLE"],
+              "s": "NASDAQ:AAPLE"
+            },
+          ],
+          "fields": ["brokerSymbol"]
+        }
+
+    AccountManagerTable:
+      type: object
+      required:
+        - id
+        - title
+        - columns
+      properties:
+        id:
+          type: string
+          example: "accountSummary"
+        title:
+          description: Localized title of a table.
+          type: string
+          example: 'Account Summary'
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountManagerColumn'
+    AccountManagerColumn:
+      type: object
+      required:
+        - id
+        - title
+      properties:
+        id:
+          type: string
+          example: 'balance'
+        title:
+          description: Localized title of a column.
+          type: string
+          example: 'Balance'
+        tooltip:
+          description: Tooltip that is shown on mouse hover.
+          type: string
+          example: 'Balance column'
+        fixedWidth:
+          description: Set it to true if data length is frequently changed.
+          type: boolean
+          example: true
+        sortable:
+          description: Set it to false if this columns data should not be sortable.
+          type: boolean
+          example: false
+
+    Duration:
+      description: Single duration option.
+      type: object
+      required:
+        - id
+        - title
+      properties:
+        id:
+          description: Duration identifier.
+          type: string
+          example: 'GTT'
+        title:
+          description: Localized title.
+          type: string
+          example: 'Good Till Time'
+        hasDatePicker:
+          description: Display date control in Order Ticket for this duration type.
+          type: boolean
+          example: true
+        hasTimePicker:
+          description: Display time control in Order Ticket for this duration type.
+          type: boolean
+          example: true
+
+    PullingInterval:
+      type: object
+      description: |
+        Time intervals in milliseconds to pull data from the server.
+      properties:
+        history:
+          description: |
+            Time interval in milliseconds to request chart real-time bar updates. The default value is `500` ms.
+          type: number
+          example: 300
+        quotes:
+          description: |
+            Time interval in milliseconds to request quote updates. The default value is `500` ms.
+          type: number
+          example: 3000
+        orders:
+          description: |
+            Time interval in milliseconds to request orders. The default value is `500` ms.
+          type: number
+          example: 300
+        positions:
+          description: |
+            Time interval in milliseconds to request positions. The default value is `1000` ms.
+          type: number
+          example: 300
+        accountManager:
+          description: |
+            Time interval in milliseconds to update Account Manager tables. The default value is `500` ms.
+          type: number
+          example: 300
+
+    SingleField:
+      type: string
+      enum:
+        - brokerSymbol
+      description: Constant. Set it to `brokerSymbol`.
+      example: brokerSymbol
+    SingleMapping:
+      type: object
+      description: Map of Broker instrument name to TradingView instrument name.
+      properties:
+        f:
+          description: An array with the only one string element &ndash; broker symbol name.
+          type: array
+          items:
+            type: string
+            example: 'EURUSD'
+        s:
+          description: TradingView symbol name with prefix (AA:XXXX).
+          type: string
+          example: 'FX_IDC:EURUSD'
+
+    Account:
+      type: object
+      required:
+        - id
+        - name
+        - config
+      properties:
+        id:
+          description: Unique account identifier.
+          type: string
+          example: 'ACC-001'
+        name:
+          description: Account title that is displayed to a user.
+          type: string
+          example: 'Demo trading account'
+        currency:
+          description: Abbreviation of account currency.
+          type: string
+          example: 'JPY'
+        currencySign:
+          description: Account currency symbol.
+          type: string
+          example: '¥'
+        config:
+          $ref: '#/components/schemas/AccountFlags'
+
+    AccountFlags:
+      type: object
+      properties:
+        showQuantityInsteadOfAmount:
+          description: Renames Amount to Quantity in the Order Ticket.
+          type: boolean
+        supportDOM:
+          description: Whether you want for DOM (Depth of market) widget to be available.
+          type: boolean
+        supportBrackets:
+          description: Whether you support brackets. Deprecated. Use supportOrderBrackets and supportPositionBrackets instead.
+          type: boolean
+          deprecated: true
+        supportOrderBrackets:
+          description: Whether you support adding (or modifying) stop loss and take profit to orders.
+          type: boolean
+        supportPositionBrackets:
+          description: Whether you support adding (or modifying) stop loss and take profit to positions.
+          type: boolean
+        supportClosePosition:
+          description: |
+            Whether you support closing of a position without a need for a user to fill an order.
+          type: boolean
+        supportEditAmount:
+          description: |
+            Whether you support editing orders quantity. If you set it to `false`,
+            the quantity control in the order ticket will be disabled when
+            modifying an order.
+          type: boolean
+        supportLevel2Data:
+          description: |
+            Whether you support Level 2 data. It is required to display DOM levels. You must implement
+            [/streaming](/rest-api-spec/#operation/streaming) to display DOM.
+          type: boolean
+        supportMultiposition:
+          description: |
+            Whether you support multiple positions at one instrument at the same time.
+          type: boolean
+        supportPLUpdate:
+          description: |
+            Whether you provide `unrealizedPl` for positions. Otherwise P&L will
+            be calculated automatically based on a simple algorithm.
+          type: boolean
+        supportReducePosition:
+          description: Reserved for future use.
+          type: boolean
+        supportStopLimitOrders:
+          description: Whether you support StopLimit orders.
+          type: boolean
+        supportOrdersHistory:
+          description: Whether you support [/ordersHistory](/rest-api-spec/#operation/getOrdersHistory) request.
+          type: boolean
+        supportExecutions:
+          description: Whether you support [/executions](/rest-api-spec/#operation/getExecutions) request.
+          type: boolean
+        supportDigitalSignature:
+          description: Whether you support Digital signature input field in the Order Ticket.
+          type: boolean
+        supportBalances:
+          description:  Whether you support [/balances](/rest-api-spec/#operation/getBalances) request
+          type: boolean
+
+    AccountState:
+      type: object
+      required:
+        - balance
+        - unrealizedPl
+      properties:
+        balance:
+          description: Account Balance.
+          type: number
+        unrealizedPl:
+          description: Unrealized profit/loss.
+          type: number
+        equity:
+          description: Equity.
+          type: number
+        amData:
+          description: |
+            Account Manager data. Structure of Account Manager is defined by the
+            [/config](#operation/getConfiguration) endpoint. Each element of this array is a table.
+          type: array
+          items:
+            description: |
+              Single Account Manager table data. Each element of this array is a table row.
+            type: array
+            items:
+              description: |
+                Account Manager table rows data. Each element of this array is a table cell.
+              type: array
+              items:
+                type: string
+      example: {
+                  "balance": 41757.91,
+                  "unrealizedPl": 1053.02,
+                  "equity": 42857.56,
+                  "amData": [
+                    [
+                      [
+                        "90.22",
+                        "42857.56",
+                        "42857.56",
+                        "1099.65",
+                        "0.00",
+                        "41757.91"
+                      ]
+                    ]
+                  ]
+                }
+
+    OrderCommon:
+      type: object
+      required:
+        - id
+        - instrument
+        - qty
+        - side
+        - type
+      properties:
+        id:
+          description: Unique identifier.
+          type: string
+        instrument:
+          description: Instrument name that is used on a broker's side.
+          type: string
+        qty:
+          description: Quantity.
+          type: number
+        side:
+          description: Side.
+          type: string
+          enum:
+            - buy
+            - sell
+        type:
+          description: Type.
+          type: string
+          enum:
+            - market
+            - stop
+            - limit
+            - stoplimit
+        filledQty:
+          description: Filled quantity.
+          type: number
+        avgPrice:
+          description: |
+            Average price of order fills. It should be provided for filled / partly filled orders.
+          type: number
+        limitPrice:
+          description: Limit Price for Limit or StopLimit order.
+          type: number
+        stopPrice:
+          description: Stop Price for Stop or StopLimit order.
+          type: number
+        parentId:
+          description: |
+            Identifier of a parent order or a parent position (for position brackets) depending on `parentType`.
+            Should be set only for bracket orders.
+          type: string
+        parentType:
+          description: Type of order's parent. Should be set only for bracket orders.
+          type: string
+          enum:
+            - order
+            - position
+        duration:
+          description: Expiration type and UNIX timestamp date/time.
+          type: object
+          required:
+            - type
+          properties:
+            type:
+              description: Duration ID. Internal ID that you set in [/config](#operation/getConfiguration) response.
+              type: string
+            datetime:
+              description: Unit timestamp (UTC).
+              type: number
+
+    OrderStatus:
+      type: object
+      properties:
+        status:
+          description: >
+            String constants to describe an order status.
+
+
+            `Status`  | Description
+
+            ----------|-------------
+
+            placing   | order is not created on a broker's side yet
+
+            inactive  | bracket order is created but waiting for a base order to
+            be filled
+
+            working   | order is created but not executed yet
+
+            rejected  | order is rejected for some reason
+
+            filled    | order is fully executed
+
+            cancelled  | order is cancelled
+          type: string
+          enum:
+            - placing
+            - inactive
+            - working
+            - rejected
+            - filled
+            - cancelled
+      required:
+        - status
+      example: 'working'
+
+    OrderHistoryStatus:
+      type: object
+      properties:
+        status:
+          description: >
+            String constants to describe a final order status.
+
+
+            `Status`  | Description
+
+            ----------|-------------
+
+            rejected  | order is rejected for some reason
+
+            filled    | order is fully executed
+
+            cancelled  | order is cancelled
+          type: string
+          enum:
+            - rejected
+            - filled
+            - cancelled
+      required:
+        - status
+
+    Order:
+      allOf:
+        - $ref: '#/components/schemas/OrderCommon'
+        - $ref: '#/components/schemas/OrderStatus'
+
+    OrderHistory:
+      allOf:
+        - $ref: '#/components/schemas/OrderCommon'
+        - $ref: '#/components/schemas/OrderHistoryStatus'
+
+    Position:
+      type: object
+      required:
+        - id
+        - instrument
+        - qty
+        - side
+        - avgPrice
+        - unrealizedPl
+      properties:
+        id:
+          description: Unique identifier.
+          type: string
+          example: '1'
+        instrument:
+          description: Instrument name that is used on a broker's side.
+          type: string
+          example: 'EURUSD'
+        qty:
+          description: Quantity.
+          type: number
+          example: 1
+        side:
+          description: Side.
+          type: string
+          enum:
+            - buy
+            - sell
+          example: 'buy'
+        avgPrice:
+          description: Average price of position trades.
+          type: number
+          example: 1.1347091
+        unrealizedPl:
+          description: Unrealized (open) profit/loss.
+          type: number
+          example: 19.4739
+
+    Execution:
+      type: object
+      required:
+        - id
+        - instrument
+        - price
+        - time
+        - qty
+        - side
+      properties:
+        id:
+          description: Unique identifier.
+          type: string
+          example: EX34567
+        instrument:
+          description: Instrument id.
+          type: string
+          example: 'EURUSD'
+        price:
+          description: Execution price.
+          type: number
+          example: 1.23564
+        time:
+          description: Execution time.
+          type: number
+          example: 1548406235
+        qty:
+          description: Execution quantity.
+          type: number
+          example: 1
+        side:
+          description: Side.
+          type: string
+          enum:
+            - buy
+            - sell
+          example: 'buy'
+
+    Instrument:
+      type: object
+      required:
+        - name
+        - description
+      properties:
+        name:
+          description: Broker instrument name.
+          type: string
+          example: 'EURUSD'
+        description:
+          description: Instrument description.
+          type: string
+          example: 'EUR/USD '
+        minQty:
+          description: Minimum quantity for trading.
+          type: number
+          example: 1
+        maxQty:
+          description: Maximum quantity for trading.
+          type: number
+          example: 100000000
+        qtyStep:
+          description: Quantity step.
+          type: number
+          example: 100
+        pipSize:
+          description: |
+            Size of 1 pip.
+            It is equal to `minTick` for non-forex symbols. For forex pairs it equals either the `minTick`,
+            or the `minTick` multiplied by `10`. For example, for EURCAD `minTick` is `0.00001` and `pipSize` is `0.0001`.
+          type: number
+          example: 0.0001
+        pipValue:
+          description: |
+            Value of 1 pip in the account currency, i.e. profit of the long position with a size of one lot,
+            when the contract's price is changed by +1 pip.
+          type: number
+          example: 0.00008845
+        minTick:
+          description: Minimum price movement.
+          type: number
+          example: 0.00001
+        lotSize:
+          description: Size of 1 lot.
+          type: number
+          example: 10
+        baseCurrency:
+          description: The first currency quoted in a currency pair. Used for crypto currencies only.
+          type: string
+        quoteCurrency:
+          description: |
+            A quote currency is the second currency quoted in a currency pair. Used for crypto currencies only.
+          type: string
+        type:
+          description: Symbol type (forex/stock etc.).
+          type: string
+          enum:
+            - stock
+            - fund
+            - dr
+            - right
+            - bond
+            - warrant
+            - structured
+            - index
+            - forex
+            - futures
+            - crypto
+          example: forex
+
+    Permissions:
+      type: object
+      required:
+        - groups
+      properties:
+        groups:
+          description: Groups list. Each element of this array is an group identifier.
+          type: array
+          items:
+            description: |
+              Each element of this array is an group identifier.
+            type: string
+            example: 'broker_stocks'
+
+    Balance:
+      type: object
+      required:
+        - symbol
+        - total
+        - available
+      properties:
+        symbol:
+          type: string
+          description: Crypto currency symbol.
+          example: 'BTC'
+        longName:
+          type: string
+          description: Crypto currency name.
+          example: 'Bitcoin'
+        total:
+          type: number
+          description: Total amount of the balance.
+          example: 1000
+        available:
+          type: number
+          description: The balance available to the user.
+          example: 10
+        btcValue:
+          type: number
+          description: Total amount of the balance in BTC.
+          example: 1000
+
+    SingleQuote:
+      type: object
+      description: Price data for an instrument.
+      properties:
+        ch:
+          description: Change (displayed in Watch and Detail).
+          type: number
+          example: 0.00762
+        chp:
+          description: Change percent (displayed in Watch and Detail).
+          type: number
+          example: 0.6739
+        lp:
+          description: Last price.
+          type: number
+          example: 1.13835
+        ask:
+          description: Ask price.
+          type: number
+          example: 1.13836
+        bid:
+          description: Bid price.
+          type: number
+          example: 1.13834
+        open_price:
+          description: Open.
+          type: number
+          example: 0
+        high_price:
+          description: High price.
+          type: number
+          example: 1.13854
+        low_price:
+          description: Low price.
+          type: number
+          example: 1.13009
+        prev_close_price:
+          description: Previous close price.
+          type: number
+          example: 1.13073
+        volume:
+          description: Volume.
+          type: number
+          example: 0
+
+    DepthItem:
+      type: array
+      description: Array with two numeric elements - price and volume.
+      items:
+        type: number
+
+    Depth:
+        type: object
+        description: Depth of market for an instrument.
+        required:
+          - asks
+          - bids
+        properties:
+          asks:
+            description: Array of arrays with two numeric elements - price and volume. Must be sorted by `price` in asc order.
+            type: array
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/DepthItem'
+          bids:
+            description: Array of arrays with two numeric elements - price and volume. Must be sorted by `price` in asc order.
+            type: array
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/DepthItem'
+        example: {asks: [[45.10, 100], [48.4, 120]], bids: [[24.7, 80], [35.6, 30]]}
+
+    GroupList:
+      type: object
+      required:
+        - groups
+      properties:
+        groups:
+          description: Groups list. Each element of this array is an group object.
+          type: array
+          items:
+            description: |
+              Each element of this array is an group object.
+            example: [{id: broker_stocks'}, {id: broker_forex}]
+            type: object
+            required:
+              - id
+            properties:
+              id:
+                description: |
+                  All characters in a group id must be either a lowercase alphabetic character or an underscore.
+                  A group id should start with the same prefix related to the broker's name.
+                type: string
+
+    SymbolInfoArrays:
+      type: object
+      description: |
+        SymbolInfo is an object containing symbols metadata. Each value of this  object is an array of values which
+        size is equal to symbols count or a single value that is applied to all symbols.
+        You can use a single value for all fields except for `supported-resolutions` and `intraday-multipliers`.
+      required:
+        - symbol
+        - description
+        - currency
+        - exchange-listed
+        - exchange-traded
+        - minmovement
+        - pricescale
+        - timezone
+        - type
+        - session-regular
+      properties:
+        symbol:
+          description: |
+            This is the name of the symbol - a string that the users will see. It should contain uppercase letters,
+            numbers, a dot or an underscore. Also, it will be used for data requests if you are not using tickers.
+          type: array
+          items:
+            type: string
+          example: ['VIXG2019', 'AAPLE', 'EURUSD']
+        description:
+          description: |
+            Description of a symbol. Will be displayed in the chart legend for this symbol.
+          type: array
+          items:
+            type: string
+          example: ['Volatility Index','Apple Inc','EUR/USD']
+        currency:
+          description: |
+            Symbol currency, also named as counter currency. If a symbol is a currency pair, then the currency field has
+            to contain the second currency of this pair. For example, `USD` is a currency for `EURUSD` ticker.
+            Fiat currency must meet the ISO 4217 standard.
+            The default value is `null`.
+          type: array
+          items:
+            type: string
+          example: 'USD'
+        base-currency:
+          description: |
+            For currency pairs only. This field contains the first currency of the pair. For example, base currency for
+            `EURUSD` ticker is `EUR`. Fiat currency must meet the ISO 4217 standard.
+            The default value is `null`.
+          type: array
+          items:
+            type: string
+            nullable: true
+          example: [null, null, 'EUR']
+        exchange-listed:
+          description: Short name of exchange where this symbol is listed.
+          type: array
+          items:
+            type: string
+          example: ['CBOE', 'NASDAQ', 'FOREX']
+        exchange-traded:
+          description: Short name of exchange where this symbol is traded.
+          type: array
+          items:
+            type: string
+          example: ['CBOE', 'NASDAQ', 'FOREX']
+        minmovement:
+          description: Minimal integer price change.
+          type: array
+          items:
+            type: number
+          example: [1.0, 1.0, 1.0]
+        minmov2:
+          description: This is a number for complex price formatting cases. The default value is `0`.
+          type: array
+          items:
+            type: number
+          example: [0, 0, 0]
+        fractional:
+          description: |
+            Boolean showing whether this symbol wants to have complex price
+            formatting (see `minmov2`) or not. The default value is `false`.
+          type: array
+          items:
+            type: boolean
+          example: [false, false, false]
+        pricescale:
+          description: |
+            Indicates how many decimal points the price has. For example, if the price has 2 decimal points (ex., 300.01),
+            then `pricescale` is `100`. If it has 3 decimals, then `pricescale` is `1000` etc. If the price doesn't have decimals,
+            set `pricescale` to `1`.
+          type: array
+          items:
+            type: number
+          example: [100, 100, 100000]
+        root:
+          description: |
+            Root of the features. It's required for futures symbol types only.
+            Provide a null value for other symbol types. The default value is `null`.
+          type: array
+          items:
+            type: string
+            nullable: true
+          example: ['VIX', null, null]
+        root-description:
+          description: |
+            Short description of the futures root that will be displayed in the symbol search.
+            It's required for futures only. Provide a null value for other symbol types.
+            The default value is `null`.
+          type: array
+          items:
+            type: string
+            nullable: true
+          example: ['Volatility Index', null, null]
+        has-intraday:
+          description: |
+            Boolean value showing whether the symbol includes intraday (minutes)
+            historical data. If it's `false` then all buttons for intraday resolutions
+            will be disabled for this particular symbol. If it is set to `true`, all
+            resolutions that are supplied directly by the datafeed must be provided
+            in `intraday_multipliers` array. The default value is `true`.
+          type: array
+          items:
+            type: boolean
+          example: [true, true, true]
+        has-no-volume:
+          description: Boolean showing whether the symbol includes volume data or not. The default value is `false`.
+          type: array
+          items:
+            type: boolean
+          example: [false, false, true]
+        type:
+          description: Symbol type (forex/stock etc.).
+          type: array
+          items:
+            type: string
+            enum:
+              - stock
+              - fund
+              - dr
+              - right
+              - bond
+              - warrant
+              - structured
+              - index
+              - forex
+              - futures
+              - crypto
+          example: ['futures', 'stock', 'forex']
+        ticker:
+          description: |
+            This is a unique identifier for this particular symbol in your symbology.
+            If you specify this property then its value will be used for all data requests for this symbol.
+          type: array
+          items:
+            type: string
+          example: ['VIXG2019', 'AAPLE', 'EURUSD']
+        timezone:
+          description: |
+            Timezone of the exchange for this symbol. We expect to get the name of the time zone in olsondb format.
+          type: array
+          items:
+            type: string
+            enum:
+              - America/New_York
+              - America/Los_Angeles
+              - America/Chicago
+              - America/Phoenix
+              - America/Toronto
+              - America/Vancouver
+              - America/Argentina/Buenos_Aires
+              - America/El_Salvador
+              - America/Sao_Paulo
+              - America/Bogota
+              - Europe/Moscow
+              - Europe/Athens
+              - Europe/Berlin
+              - Europe/London
+              - Europe/Madrid
+              - Europe/Paris
+              - Europe/Warsaw
+              - Australia/Sydney
+              - Australia/Brisbane
+              - Australia/Adelaide
+              - Australia/ACT
+              - Asia/Almaty
+              - Asia/Ashkhabad
+              - Asia/Tokyo
+              - Asia/Taipei
+              - Asia/Singapore
+              - Asia/Shanghai
+              - Asia/Seoul
+              - Asia/Tehran
+              - Asia/Dubai
+              - Asia/Kolkata
+              - Asia/Hong_Kong
+              - Asia/Bangkok
+              - Pacific/Auckland
+              - Pacific/Chatham
+              - Pacific/Fakaofo
+              - Pacific/Honolulu
+              - America/Mexico_City
+              - Africa/Johannesburg
+              - Asia/Kathmandu
+              - US/Mountain
+          example: ['America/New_York', 'America/New_York', 'America/New_York']
+        session-regular:
+          description: |
+            Session time format is HHMM-HHMM. E.g., a session that starts at 9:30 am and ends at 4:00 pm should look like `0930-1600`.
+            There is a special case for symbols traded 24/7 (e.g., Bitcoin and other cryptocurrencies): the session string should be `24x7`.
+            To specify an overnight session set start time greater than end time (ie, `1700-0900`).
+            Session time is expected to be in exchange time zone.
+          type: array
+          items:
+            type: string
+          example: ['0000-2359:23456', '0930-1600', '1700-1700']
+        session-extended:
+          description: |
+            An extended session, includes `session-premarket` and `session-postmarket`.
+            The start time should be earlier or be equal to the start time of the `session-regular`
+            and be equal to the start time of the `session-premarket` if it exists.
+          type: array
+          items:
+            type: string
+            nullable: true
+          example: ['0000-2359:23456', '0400-2000', '1700-1700']
+        session-premarket:
+          description: |
+            An additional session before `session-regular`. The start time should be equal to the start time of the `session-extended`.
+            The end time should be equal or less than the start time of the `session-regular`.
+          type: array
+          items:
+            type: string
+            nullable: true
+          example: [null, '0400-0930', null]
+        session-postmarket:
+          description: |
+            An additional session after the `session-regular`. The start time should be equal or greater
+            than the end time of the `session-regular`. The end time should be equal to the end time of the `session-extended`.
+          type: array
+          items:
+            type: string
+            nullable: true
+          example: [null, '1600-2000', null]
+        supported-resolutions:
+          description: |
+            An array of resolutions which should be enabled in resolutions picker
+            for this symbol. Each item of an array is expected to be a string.
+            The default value is an empty array.
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+          example: [['1', '3', '5', '15', '30', '60', '240', 'D', 'W'], ['1', '3', '5', '15', '30', '60', '240', 'D', 'W'], ['1', '3', '5', '15', '30', '60', '240', 'D', 'W']]
+        has-daily:
+          description: |
+            The boolean value showing whether data feed has its own daily
+            resolution bars or not. If `has_daily` = `false` then Charting Library
+            will build the respective resolutions using 1-minute bars by itself.
+            If not, then it will request those bars from the data feed.
+            The default value is `true`.
+          type: array
+          items:
+            type: boolean
+          example: [true, true, true]
+        intraday-multipliers:
+          description: |
+            This is an array containing intraday resolutions (in minutes) that the data feed may provide.
+            E.g., if the data feed supports resolutions such as `["1", "5", "15"]`, but has 1-minute bars
+            for some symbols then you should set `intraday_multipliers` of this symbol to `[1]`. This will
+            make Charting Library build 5 and 15-minute resolutions by itself.
+            The default value is an empty array.
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+          example: [['1', '3', '5', '15', '30', '60', '240'], ['1', '3', '5', '15', '30', '60', '240'], ['1', '3', '5', '15', '30', '60', '240']]
+        has-weekly-and-monthly:
+          description: |
+            The boolean value showing whether data feed has its own weekly
+            and monthly resolution bars or not. If `has_weekly_and_monthly` = `false`
+            then Charting Library will build the respective resolutions using daily
+            bars by itself. If not, then it will request those bars from the data feed.
+            The default value is `false`.
+          type: array
+          items:
+            type: boolean
+          example: [false, false, false]
+        pointvalue:
+            description: |
+              The currency value of a single whole unit price change in the instrument's currency.
+              If the value is not provided it is assumed to be `1`.
+            type: array
+            items:
+              type: number
+            example: [10, 1, 0.00001]
+        expiration:
+            description: |
+              Expiration of the futures in the following format: YYYYMMDD. Required for futures type symbols only.
+              The default value is `null`.
+            type: array
+            items:
+              type: number
+              nullable: true
+            example: [20190213, null, null]
+        bar-source:
+          description: The principle of building bars. The default value is `trade`.
+          type: array
+          items:
+            type: string
+            enum:
+              - bid
+              - ask
+              - mid
+              - trade
+          example: ['trade', 'bid', 'ask']
+        bar-transform:
+          description: The principle of bar alignment. The default value is `none`.
+          type: array
+          items:
+            type: string
+            enum:
+              - none
+              - openprev
+              - prevopen
+          example: ['openprev', 'openprev', 'none']
+        bar-fillgaps:
+          description: |
+            Is used to create the zero-volume bars in the absence of any trades
+            (i.e. bars with zero volume and equal OHLC values ).
+            The default value is `false`.
+          type: array
+          items:
+            type: boolean
+          example: ['true', 'true', 'false']
+    BarsArrays:
+      type: object
+      description: Bars data.
+      required:
+        - t
+        - o
+        - h
+        - l
+        - c
+        - v
+      properties:
+        t:
+          description: |
+            Bar time, unix timestamp (UTC). Daily bars should only have the date
+            part, time should be 0.
+          type: array
+          items:
+            type: number
+          example: [1547942400, 1547942460,  1547942520]
+        o:
+          description: Open price.
+          type: array
+          items:
+            type: number
+          example: [3667, 3662.25, 3664.29]
+        h:
+          description: High price.
+          type: array
+          items:
+            type: number
+          example: [3667.24, 3664.47, 3664.3]
+        l:
+          description: Low price.
+          type: array
+          items:
+            type: number
+          example: [3661.55, 3661.9, 3662.43]
+        c:
+          description: Close price.
+          type: array
+          items:
+            type: number
+          example: [3662.25, 3663.13, 3664.01]
+        v:
+          description: Volume.
+          type: array
+          items:
+            type: number
+          example: [34.7336, 2.4413, 11.7075]
+
+
+    StreamingAskItemType:
+      type: object
+      description: Ask
+      properties:
+        f:
+          description: Should always be `a`.
+          type: string
+          example: 'a'
+
+    StreamingBidItemType:
+      type: object
+      description: Bid
+      properties:
+        f:
+          description: Should always be `b`.
+          type: string
+          example: 'b'
+
+    StreamingTradeItemType:
+      type: object
+      description: Trade
+      properties:
+        f:
+          description: Should always be `t`.
+          type: string
+          example: 't'
+
+    StreamingDailyBarType:
+      type: object
+      description: Daily Bar
+      properties:
+        f:
+          description: Should always be `d`.
+          type: string
+          example: 'd'
+
+    StreamingAskBidTradeItem:
+      type: object
+      description: Ask or Bid.
+      required:
+        - id
+        - p
+        - t
+      properties:
+        id:
+          description: Symbol
+          type: string
+          example: 'EURUSD'
+        p:
+          description: Price.
+          type: number
+          example: 1.47245
+        s:
+          description: Size.
+          type: number
+          example: 100
+        t:
+          description: UNIX time UTC.
+          type: number
+          example: 1547942400

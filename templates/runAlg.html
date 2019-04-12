@@ -1,7 +1,15 @@
 <!DOCTYPE HMTL>
 <html>
-<link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/index.css') }}">
+<link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/index.css') }}" />
 <script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+<<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<style media="screen">
+  table, th, td {
+  border: 1px solid black;
+}
+</style>
 
 <head>
   <center>
@@ -17,15 +25,38 @@
         <input type="text" name="ticker" value="" placeholder="Enter Ticker">
         <input type="submit" name="button" value="Enter">
       </form>
+      <div class="real-time-data">
+        <table style="width:10%">
+          <tr>
+            <th>SMA</th>
+            <th>EMA</th>
+          </tr>
+          <tr>
+            <td>{{sma}}</td>
+            <td>{{ema}}</td>
+          </tr>
+        </table>
+      </div>
     </center>
-
-    <img id="graph" src="static/images/graph.png" alt="Chart">
+    <!--<img id="graph" src={{graph}} alt="Chart">-->
+    <!-- <img class="NO-CACHE" id="graph" src="static/images/graph.png" alt="Chart"> -->
+    <img class="NO-CACHE" id="graph" src="{{graphUrl}}" alt="Chart">
   </div>
+  <label id="check" style="display:none;">{{isPost}}</label>
 </body>
 
 </html>
 
 <script>
+  $(document).ready(function() {
+    // if ($("#check").text() == 'True') {
+    //   $('.NO-CACHE').attr('src', function() {
+    //     return $(this).attr('src') + "?a=" + Math.random()
+    //   });
+    // }
+
+  });
+
   jQuery.ajaxSetup({
     async: false
   });

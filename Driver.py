@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, g, url_for
+from flask import Flask, render_template, request, g, url_for, jsonify
 #, session from flask.ext.session import Session
 from flask_socketio import SocketIO, emit
 import pandas_datareader as pdr
@@ -10,6 +10,7 @@ import os, fnmatch
 import plotly
 import plotly.plotly as py
 import plotly.graph_objs as go
+import plotly.tools as tls
 plotly.tools.set_credentials_file(username='mamendio', api_key='XVNkOrNxyfr2Yi5oAElG')
 #Folder Templates - will hold all html files
 #Folder Static - will hold all css files
@@ -71,8 +72,16 @@ def runAlg():
             # plt.grid(True)
             # plt.title(ticker.upper())
             # plt.plot()
+
+            ohlc = []
+            while x < y:
+                append_me = data.date[x], data.Open[x], data.High[x], data.Low[x], data.Close[x], data.Volume[x]
+                ohlc.append(append_me)
+                x+=1
+
+
             Dates = pd.date_range(end = pd.datetime.today(), periods = 30).tolist()
-            trace = go.Ohlc(x = Dates,
+            trace = go.CandleStick(x = Dates,
                             open=data.Open,
                             high=data.High,
                             low=data.Low,
@@ -82,7 +91,6 @@ def runAlg():
                 autosize=False,
                 width=500,
                 height=500,
-                scrollZoom = False,
                 xaxis = dict(
                     rangeslider = dict(
                         visible = False
@@ -93,11 +101,12 @@ def runAlg():
             data = [trace]
 
             fig = go.Figure(data=data,layout=layout)
-            url=py.plot(fig, filename=cache['ticker'])
+            url=py.plot(fig, filename=cache['ticker'],auto_open=False, config={'displayModeBar': False})
+            cache['Url'] = url
         except:
-            return render_template('runAlg.html', ema=-1,sma=-1, isPost=str(isPost))
-        plt.savefig('static/images/graph.png')
-        return render_template('runAlg.html', ema=str(round(valuesResult[0], 2)),sma=str(round(valuesResult[1], 2)), isPost=str(isPost), graphUrl = url)
+            return render_template('runAlg.html', ema=-1,sma=-1, isPost=str(isPost), graphUrl = cache['Url'], Ticker = cache['ticker'])
+        # plt.savefig('static/images/graph.png')
+        return render_template('runAlg.html', ema=str(round(valuesResult[0], 2)),sma=str(round(valuesResult[1], 2)), isPost=str(isPost), graphUrl = cache['Url'], Ticker = cache['ticker'])
     elif request.method == 'GET':
         if ticker != "":
             cache['ticker'] = ticker
@@ -107,32 +116,16 @@ def runAlg():
             # print(str(round(valuesResult[0], 2)))
             # print(str(round(valuesResult[1], 2)))
         except:
-            return render_template('runAlg.html', ema=-1,sma=-1, isPost=str(isPost))
-        return render_template('runAlg.html', ema=str(round(valuesResult[0], 2)),sma=str(round(valuesResult[1], 2)), isPost=str(isPost))
-
-
-    # print('current ticker{0}'.format(cache['ticker']))
-
-
-
-    # graph = find('*.png','static/images/')
-    # if graph[0] == 'static/images/graph1.png':
-    #     os.remove("static/images/graph1.png")
-    #     plt.savefig('static/images/graph.png')
-    #     path = 'static/images/graph.png'
-    #     return render_template('runAlg.html',graph=path, ema=str(round(valuesResult[0], 2)),sma=str(round(valuesResult[1], 2)))
-    # else:
-    #     os.remove("static/images/graph.png")
-    #     plt.savefig('static/images/graph1.png')
-    #     path = 'static/images/graph1.png'
-    #     return render_template('runAlg.html',graph=path, ema=str(round(valuesResult[0], 2)),sma=str(round(valuesResult[1], 2)))
+            return jsonify(ema=-1,sma=-1, isPost=str(isPost), graphUrl = cache['Url'], Ticker = cache['ticker'])
+        return jsonify(ema=str(round(valuesResult[0], 2)),sma=str(round(valuesResult[1], 2)), isPost=str(isPost), graphUrl = cache['Url'], Ticker = cache['ticker'])
 
 
 if __name__ == "__main__":
     socketio.run(app, debug=True)
 
 
-
+#blue 8 day
+#red 21 day
 
 #--------side notes ---------------
 # Should look at the daily data
